@@ -1,0 +1,131 @@
+import javax.swing.*; 
+import java.awt.*; 
+import java.awt.event.*; 
+import java.io.*; 
+import java.net.*; 
+public class RealDownloadManagerGUI extends JFrame { 
+private static final String[] FILE_URLS = { 
+"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", 
+"https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-zip-file.zip", 
+"https://file-examples-com.github.io/uploads/2017/10/file-sample_150kB.pdf" 
+}; 
+    private static final String DOWNLOAD_DIR = "downloads/"; 
+    private JProgressBar[] progressBars = new JProgressBar[FILE_URLS.length]; 
+    private DownloadThread[] threads = new DownloadThread[FILE_URLS.length]; 
+    private JButton startBtn, stopBtn; 
+ 
+    public RealDownloadManagerGUI() { 
+        setTitle("Real Multithreaded Download Manager"); 
+        setSize(500, 300); 
+        setLayout(new BorderLayout()); 
+        setDefaultCloseOperation(EXIT_ON_CLOSE); 
+ 
+        File dir = new File(DOWNLOAD_DIR); 
+        if (!dir.exists()) dir.mkdir(); 
+ 
+        JPanel progressPanel = new JPanel(new GridLayout(FILE_URLS.length, 1, 5, 5)); 
+        for (int i = 0; i < FILE_URLS.length; i++) { 
+            progressBars[i] = new JProgressBar(0, 100); 
+            progressBars[i].setStringPainted(true); 
+            progressBars[i].setString("Waiting to start..."); 
+            progressPanel.add(progressBars[i]); 
+        } 
+ 
+        JPanel buttonPanel = new JPanel(); 
+        startBtn = new JButton("Start"); 
+        stopBtn = new JButton("Stop"); 
+        stopBtn.setEnabled(false); 
+ 
+        startBtn.addActionListener(e -> startDownloads()); 
+        stopBtn.addActionListener(e -> stopDownloads()); 
+ 
+        buttonPanel.add(startBtn); 
+        buttonPanel.add(stopBtn); 
+ 
+        add(progressPanel, BorderLayout.CENTER); 
+        add(buttonPanel, BorderLayout.SOUTH); 
+        setVisible(true); 
+    } 
+ 
+    private void startDownloads() { 
+        startBtn.setEnabled(false); 
+        stopBtn.setEnabled(true); 
+ 
+        for (int i = 0; i < FILE_URLS.length; i++) { 
+            progressBars[i].setValue(0); 
+            String fileURL = FILE_URLS[i]; 
+            String fileName = "file_" + (i + 1) + getExtension(fileURL); 
+            threads[i] = new DownloadThread(fileURL, DOWNLOAD_DIR + fileName, 
+progressBars[i]); 
+            threads[i].start(); 
+        } 
+    } 
+ 
+    private void stopDownloads() { 
+        for (DownloadThread thread : threads) { 
+            if (thread != null) thread.interrupt(); 
+        } 
+        stopBtn.setEnabled(false); 
+        startBtn.setEnabled(true); 
+    } 
+ 
+    private String getExtension(String url) { 
+        return url.substring(url.lastIndexOf(".")); 
+    } 
+ 
+    static class DownloadThread extends Thread { 
+        private String fileURL, savePath; 
+        private JProgressBar progressBar; 
+ 
+        public DownloadThread(String fileURL, String savePath, JProgressBar progressBar) { 
+            this.fileURL = fileURL; 
+            this.savePath = savePath; 
+            this.progressBar = progressBar; 
+        } 
+ 
+        @Override 
+        public void run() { 
+            try (BufferedInputStream in = new BufferedInputStream(new 
+URL(fileURL).openStream()); 
+                 FileOutputStream out = new FileOutputStream(savePath)) { 
+ 
+                URL url = new URL(fileURL); 
+                URLConnection connection = url.openConnection(); 
+                int fileSize = connection.getContentLength(); 
+ 
+                if (fileSize <= 0) { 
+                    SwingUtilities.invokeLater(() -> progressBar.setString("Error: Unknown 
+file size")); 
+                    return; 
+                } 
+ 
+                byte[] buffer = new byte[1024]; 
+                int bytesRead; 
+                int totalRead = 0; 
+ 
+                while ((bytesRead = in.read(buffer, 0, 1024)) != -1) { 
+                    if (Thread.currentThread().isInterrupted()) { 
+                        SwingUtilities.invokeLater(() -> progressBar.setString("Cancelled")); 
+                        return; 
+                    } 
+ 
+                    out.write(buffer, 0, bytesRead); 
+                    totalRead += bytesRead; 
+                    int percent = (int) (((double) totalRead / fileSize) * 100); 
+ 
+                    SwingUtilities.invokeLater(() -> { 
+                        progressBar.setValue(percent); 
+                        progressBar.setString("Downloading... " + percent + "%"); 
+                    }); 
+} 
+SwingUtilities.invokeLater(() -> progressBar.setString("Completed")); 
+} catch (IOException e) { 
+SwingUtilities.invokeLater(() -> progressBar.setString("Failed: " + 
+e.getMessage())); 
+} 
+} 
+} 
+public static void main(String[] args) { 
+SwingUtilities.invokeLater(RealDownloadManagerGUI::new); 
+} 
+} 
