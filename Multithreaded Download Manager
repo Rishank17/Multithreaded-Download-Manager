@@ -1,131 +1,508 @@
-import javax.swing.*; 
-import java.awt.*; 
-import java.awt.event.*; 
-import java.io.*; 
-import java.net.*; 
-public class RealDownloadManagerGUI extends JFrame { 
-private static final String[] FILE_URLS = { 
-"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", 
-"https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-zip-file.zip", 
-"https://file-examples-com.github.io/uploads/2017/10/file-sample_150kB.pdf" 
-}; 
-    private static final String DOWNLOAD_DIR = "downloads/"; 
-    private JProgressBar[] progressBars = new JProgressBar[FILE_URLS.length]; 
-    private DownloadThread[] threads = new DownloadThread[FILE_URLS.length]; 
-    private JButton startBtn, stopBtn; 
- 
-    public RealDownloadManagerGUI() { 
-        setTitle("Real Multithreaded Download Manager"); 
-        setSize(500, 300); 
-        setLayout(new BorderLayout()); 
-        setDefaultCloseOperation(EXIT_ON_CLOSE); 
- 
-        File dir = new File(DOWNLOAD_DIR); 
-        if (!dir.exists()) dir.mkdir(); 
- 
-        JPanel progressPanel = new JPanel(new GridLayout(FILE_URLS.length, 1, 5, 5)); 
-        for (int i = 0; i < FILE_URLS.length; i++) { 
-            progressBars[i] = new JProgressBar(0, 100); 
-            progressBars[i].setStringPainted(true); 
-            progressBars[i].setString("Waiting to start..."); 
-            progressPanel.add(progressBars[i]); 
-        } 
- 
-        JPanel buttonPanel = new JPanel(); 
-        startBtn = new JButton("Start"); 
-        stopBtn = new JButton("Stop"); 
-        stopBtn.setEnabled(false); 
- 
-        startBtn.addActionListener(e -> startDownloads()); 
-        stopBtn.addActionListener(e -> stopDownloads()); 
- 
-        buttonPanel.add(startBtn); 
-        buttonPanel.add(stopBtn); 
- 
-        add(progressPanel, BorderLayout.CENTER); 
-        add(buttonPanel, BorderLayout.SOUTH); 
-        setVisible(true); 
-    } 
- 
-    private void startDownloads() { 
-        startBtn.setEnabled(false); 
-        stopBtn.setEnabled(true); 
- 
-        for (int i = 0; i < FILE_URLS.length; i++) { 
-            progressBars[i].setValue(0); 
-            String fileURL = FILE_URLS[i]; 
-            String fileName = "file_" + (i + 1) + getExtension(fileURL); 
-            threads[i] = new DownloadThread(fileURL, DOWNLOAD_DIR + fileName, 
-progressBars[i]); 
-            threads[i].start(); 
-        } 
-    } 
- 
-    private void stopDownloads() { 
-        for (DownloadThread thread : threads) { 
-            if (thread != null) thread.interrupt(); 
-        } 
-        stopBtn.setEnabled(false); 
-        startBtn.setEnabled(true); 
-    } 
- 
-    private String getExtension(String url) { 
-        return url.substring(url.lastIndexOf(".")); 
-    } 
- 
-    static class DownloadThread extends Thread { 
-        private String fileURL, savePath; 
-        private JProgressBar progressBar; 
- 
-        public DownloadThread(String fileURL, String savePath, JProgressBar progressBar) { 
-            this.fileURL = fileURL; 
-            this.savePath = savePath; 
-            this.progressBar = progressBar; 
-        } 
- 
-        @Override 
-        public void run() { 
-            try (BufferedInputStream in = new BufferedInputStream(new 
-URL(fileURL).openStream()); 
-                 FileOutputStream out = new FileOutputStream(savePath)) { 
- 
-                URL url = new URL(fileURL); 
-                URLConnection connection = url.openConnection(); 
-                int fileSize = connection.getContentLength(); 
- 
-                if (fileSize <= 0) { 
-                    SwingUtilities.invokeLater(() -> progressBar.setString("Error: Unknown 
-file size")); 
-                    return; 
-                } 
- 
-                byte[] buffer = new byte[1024]; 
-                int bytesRead; 
-                int totalRead = 0; 
- 
-                while ((bytesRead = in.read(buffer, 0, 1024)) != -1) { 
-                    if (Thread.currentThread().isInterrupted()) { 
-                        SwingUtilities.invokeLater(() -> progressBar.setString("Cancelled")); 
-                        return; 
-                    } 
- 
-                    out.write(buffer, 0, bytesRead); 
-                    totalRead += bytesRead; 
-                    int percent = (int) (((double) totalRead / fileSize) * 100); 
- 
-                    SwingUtilities.invokeLater(() -> { 
-                        progressBar.setValue(percent); 
-                        progressBar.setString("Downloading... " + percent + "%"); 
-                    }); 
-} 
-SwingUtilities.invokeLater(() -> progressBar.setString("Completed")); 
-} catch (IOException e) { 
-SwingUtilities.invokeLater(() -> progressBar.setString("Failed: " + 
-e.getMessage())); 
-} 
-} 
-} 
-public static void main(String[] args) { 
-SwingUtilities.invokeLater(RealDownloadManagerGUI::new); 
-} 
-} 
+import javax.swing.*;
+import javax.swing.border.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.net.*;
+import java.text.DecimalFormat;
+import java.util.*;
+import java.util.List;
+import java.util.concurrent.*;
+
+public class ImprovedDownloadManager extends JFrame {
+    // Constants
+    private static final String DEFAULT_DOWNLOAD_DIR = "downloads/";
+    private static final String[] SAMPLE_URLS = {
+            "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+            "https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-zip-file.zip",
+            "https://file-examples-com.github.io/uploads/2017/10/file-sample_150kB.pdf"
+    };
+    
+    // UI Components
+    private JTextField urlField;
+    private JButton addUrlBtn;
+    private JButton browseBtn;
+    private JTextField downloadDirField;
+    private JPanel downloadsPanel;
+    private JButton startAllBtn;
+    private JButton stopAllBtn;
+    private JButton clearCompletedBtn;
+    
+    // Data structures
+    private List<DownloadItem> downloadItems = new ArrayList<>();
+    private ExecutorService executorService;
+    private String downloadDir;
+    
+    public ImprovedDownloadManager() {
+        // Setup the application
+        setTitle("Advanced Download Manager");
+        setSize(800, 600);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+        
+        // Initialize executor service for downloads
+        executorService = Executors.newFixedThreadPool(5);
+        
+        // Initialize download directory
+        downloadDir = DEFAULT_DOWNLOAD_DIR;
+        File dir = new File(downloadDir);
+        if (!dir.exists()) dir.mkdir();
+        
+        // Setup UI
+        setupUI();
+        
+        // Load sample URLs (for demo)
+        for (String url : SAMPLE_URLS) {
+            addDownloadItem(url);
+        }
+        
+        // Set visible
+        setVisible(true);
+    }
+    
+    private void setupUI() {
+        // Set main layout
+        setLayout(new BorderLayout(10, 10));
+        
+        // Create panels with proper padding
+        JPanel topPanel = new JPanel(new BorderLayout(5, 5));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
+        
+        // URL input components
+        JPanel urlPanel = new JPanel(new BorderLayout(5, 0));
+        urlField = new JTextField();
+        addUrlBtn = new JButton("Add URL");
+        urlPanel.add(new JLabel("URL: "), BorderLayout.WEST);
+        urlPanel.add(urlField, BorderLayout.CENTER);
+        urlPanel.add(addUrlBtn, BorderLayout.EAST);
+        
+        // Directory selection components
+        JPanel dirPanel = new JPanel(new BorderLayout(5, 0));
+        downloadDirField = new JTextField(downloadDir);
+        downloadDirField.setEditable(false);
+        browseBtn = new JButton("Browse");
+        dirPanel.add(new JLabel("Save to: "), BorderLayout.WEST);
+        dirPanel.add(downloadDirField, BorderLayout.CENTER);
+        dirPanel.add(browseBtn, BorderLayout.EAST);
+        
+        // Add panels to top panel
+        topPanel.add(urlPanel, BorderLayout.NORTH);
+        topPanel.add(dirPanel, BorderLayout.SOUTH);
+        
+        // Create downloads panel with scroll
+        downloadsPanel = new JPanel();
+        downloadsPanel.setLayout(new BoxLayout(downloadsPanel, BoxLayout.Y_AXIS));
+        JScrollPane scrollPane = new JScrollPane(downloadsPanel);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        
+        // Create button panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+        startAllBtn = new JButton("Start All");
+        stopAllBtn = new JButton("Stop All");
+        clearCompletedBtn = new JButton("Clear Completed");
+        
+        buttonPanel.add(startAllBtn);
+        buttonPanel.add(stopAllBtn);
+        buttonPanel.add(clearCompletedBtn);
+        
+        // Add panels to frame
+        add(topPanel, BorderLayout.NORTH);
+        add(scrollPane, BorderLayout.CENTER);
+        add(buttonPanel, BorderLayout.SOUTH);
+        
+        // Setup event listeners
+        setupEventListeners();
+    }
+    
+    private void setupEventListeners() {
+        // Add URL button
+        addUrlBtn.addActionListener(e -> {
+            String url = urlField.getText().trim();
+            if (!url.isEmpty()) {
+                addDownloadItem(url);
+                urlField.setText("");
+            } else {
+                JOptionPane.showMessageDialog(this, 
+                    "Please enter a valid URL", 
+                    "Invalid URL", 
+                    JOptionPane.WARNING_MESSAGE);
+            }
+        });
+        
+        // Directory selection
+        browseBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            chooser.setDialogTitle("Select Download Directory");
+            
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                downloadDir = chooser.getSelectedFile().getAbsolutePath() + File.separator;
+                downloadDirField.setText(downloadDir);
+            }
+        });
+        
+        // Batch operations
+        startAllBtn.addActionListener(e -> {
+            downloadItems.forEach(DownloadItem::startDownload);
+        });
+        
+        stopAllBtn.addActionListener(e -> {
+            downloadItems.forEach(DownloadItem::stopDownload);
+        });
+        
+        clearCompletedBtn.addActionListener(e -> {
+            List<DownloadItem> itemsToRemove = new ArrayList<>();
+            
+            for (DownloadItem item : downloadItems) {
+                if (item.isCompleted() || item.isFailed()) {
+                    itemsToRemove.add(item);
+                }
+            }
+            
+            for (DownloadItem item : itemsToRemove) {
+                downloadsPanel.remove(item);
+                downloadItems.remove(item);
+            }
+            
+            downloadsPanel.revalidate();
+            downloadsPanel.repaint();
+        });
+        
+        // Handle window closing
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                executorService.shutdownNow();
+                try {
+                    if (!executorService.awaitTermination(3, TimeUnit.SECONDS)) {
+                        System.err.println("Executor did not terminate in the specified time.");
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                System.exit(0);
+            }
+        });
+    }
+    
+    private void addDownloadItem(String url) {
+        try {
+            DownloadItem item = new DownloadItem(url, downloadDir, executorService);
+            downloadItems.add(item);
+            downloadsPanel.add(item);
+            downloadsPanel.revalidate();
+            downloadsPanel.repaint();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, 
+                "Error adding download: " + e.getMessage(), 
+                "Error", 
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+    
+    public static void main(String[] args) {
+        try {
+            // Set system look and feel
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        SwingUtilities.invokeLater(() -> new ImprovedDownloadManager());
+    }
+    
+    // DownloadItem class - represents a single download with its own UI
+    class DownloadItem extends JPanel {
+        private String url;
+        private String fileName;
+        private String savePath;
+        private ExecutorService executor;
+        private Future<?> downloadTask;
+        
+        private JProgressBar progressBar;
+        private JLabel statusLabel;
+        private JLabel sizeLabel;
+        private JLabel speedLabel;
+        private JButton actionBtn;
+        private JButton removeBtn;
+        
+        private long fileSize;
+        private long downloadedBytes;
+        private long startTime;
+        private volatile boolean isRunning = false;
+        private volatile boolean isCompleted = false;
+        private volatile boolean isFailed = false;
+        
+        public DownloadItem(String url, String downloadDir, ExecutorService executor) {
+            this.url = url;
+            this.executor = executor;
+            
+            // Extract file name from URL
+            try {
+                String urlPath = new URL(url).getPath();
+                fileName = urlPath.substring(urlPath.lastIndexOf('/') + 1);
+                if (fileName.isEmpty()) {
+                    fileName = "download_" + System.currentTimeMillis() + getExtension(url);
+                }
+            } catch (Exception e) {
+                fileName = "download_" + System.currentTimeMillis();
+            }
+            
+            savePath = downloadDir + fileName;
+            
+            // Initialize UI
+            setupDownloadItemUI();
+        }
+        
+        private void setupDownloadItemUI() {
+            // Set panel properties
+            setLayout(new BorderLayout(5, 5));
+            setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(5, 0, 5, 0),
+                BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Color.LIGHT_GRAY),
+                    BorderFactory.createEmptyBorder(10, 10, 10, 10)
+                )
+            ));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+            
+            // Create components
+            JPanel infoPanel = new JPanel(new GridLayout(4, 1, 0, 2));
+            JLabel nameLabel = new JLabel("<html><b>" + fileName + "</b></html>");
+            JLabel urlLabel = new JLabel("<html><font color='gray'>" + url + "</font></html>");
+            
+            statusLabel = new JLabel("Ready");
+            sizeLabel = new JLabel("Size: Unknown");
+            speedLabel = new JLabel("Speed: 0 KB/s");
+            
+            progressBar = new JProgressBar(0, 100);
+            progressBar.setStringPainted(true);
+            progressBar.setString("Waiting");
+            
+            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            actionBtn = new JButton("Start");
+            removeBtn = new JButton("Remove");
+            buttonPanel.add(actionBtn);
+            buttonPanel.add(removeBtn);
+            
+            // Add components to info panel
+            infoPanel.add(nameLabel);
+            infoPanel.add(urlLabel);
+            infoPanel.add(sizeLabel);
+            infoPanel.add(speedLabel);
+            
+            // Add components to this panel
+            add(infoPanel, BorderLayout.NORTH);
+            add(progressBar, BorderLayout.CENTER);
+            add(buttonPanel, BorderLayout.SOUTH);
+            
+            // Setup event listeners
+            actionBtn.addActionListener(e -> {
+                if (isRunning) {
+                    stopDownload();
+                } else {
+                    startDownload();
+                }
+            });
+            
+            removeBtn.addActionListener(e -> {
+                stopDownload();
+                downloadItems.remove(this);
+                downloadsPanel.remove(this);
+                downloadsPanel.revalidate();
+                downloadsPanel.repaint();
+            });
+        }
+        
+        public void startDownload() {
+            if (isRunning || isCompleted) return;
+            
+            isRunning = true;
+            actionBtn.setText("Stop");
+            progressBar.setValue(0);
+            progressBar.setString("Connecting...");
+            statusLabel.setText("Downloading");
+            
+            downloadTask = executor.submit(() -> {
+                HttpURLConnection connection = null;
+                InputStream in = null;
+                FileOutputStream out = null;
+                
+                try {
+                    // Create connection
+                    URL urlObj = new URL(url);
+                    connection = (HttpURLConnection) urlObj.openConnection();
+                    connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+                    connection.connect();
+                    
+                    // Check if the connection is successful
+                    if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                        throw new IOException("HTTP error code: " + connection.getResponseCode());
+                    }
+                    
+                    // Get file size
+                    fileSize = connection.getContentLengthLong();
+                    final String fileSizeStr = formatFileSize(fileSize);
+                    
+                    SwingUtilities.invokeLater(() -> {
+                        sizeLabel.setText("Size: " + fileSizeStr);
+                        progressBar.setString("0%");
+                    });
+                    
+                    // Create directories if needed
+                    File file = new File(savePath);
+                    File parentDir = file.getParentFile();
+                    if (parentDir != null && !parentDir.exists()) {
+                        parentDir.mkdirs();
+                    }
+                    
+                    // Start the download
+                    in = new BufferedInputStream(connection.getInputStream());
+                    out = new FileOutputStream(savePath);
+                    
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    downloadedBytes = 0;
+                    startTime = System.currentTimeMillis();
+                    long lastUpdateTime = startTime;
+                    long lastUpdateBytes = 0;
+                    
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        // Check for interruption
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new InterruptedException();
+                        }
+                        
+                        // Write to file
+                        out.write(buffer, 0, bytesRead);
+                        downloadedBytes += bytesRead;
+                        
+                        // Update UI
+                        long now = System.currentTimeMillis();
+                        if (now - lastUpdateTime > 500) {  // Update UI every 500ms
+                            final int progress = fileSize > 0 ? (int) ((downloadedBytes * 100) / fileSize) : 0;
+                            final String downloadedStr = formatFileSize(downloadedBytes);
+                            
+                            // Calculate speed
+                            long timeElapsed = now - lastUpdateTime;
+                            long bytesElapsed = downloadedBytes - lastUpdateBytes;
+                            final double speed = bytesElapsed / (timeElapsed / 1000.0);
+                            
+                            // Calculate ETA
+                            final String eta = calculateETA(fileSize - downloadedBytes, speed);
+                            
+                            SwingUtilities.invokeLater(() -> {
+                                progressBar.setValue(progress);
+                                progressBar.setString(progress + "%");
+                                sizeLabel.setText("Size: " + downloadedStr + " / " + fileSizeStr);
+                                speedLabel.setText("Speed: " + formatFileSize((long) speed) + "/s • ETA: " + eta);
+                            });
+                            
+                            lastUpdateTime = now;
+                            lastUpdateBytes = downloadedBytes;
+                        }
+                    }
+                    
+                    // Download completed
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(100);
+                        progressBar.setString("Completed");
+                        actionBtn.setText("Restart");
+                        statusLabel.setText("Completed");
+                        speedLabel.setText("Download Complete");
+                        isCompleted = true;
+                        isRunning = false;
+                    });
+                    
+                } catch (InterruptedException e) {
+                    // Download was stopped by user
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setString("Stopped");
+                        statusLabel.setText("Stopped");
+                        speedLabel.setText("Download Stopped");
+                        actionBtn.setText("Resume");
+                        isRunning = false;
+                    });
+                    
+                } catch (Exception e) {
+                    // Download failed
+                    final String errorMsg = e.getMessage();
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setString("Failed");
+                        statusLabel.setText("Failed");
+                        speedLabel.setText("Error: " + errorMsg);
+                        actionBtn.setText("Retry");
+                        isRunning = false;
+                        isFailed = true;
+                    });
+                    e.printStackTrace();
+                    
+                } finally {
+                    // Close resources
+                    try {
+                        if (out != null) out.close();
+                        if (in != null) in.close();
+                        if (connection != null) connection.disconnect();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        }
+        
+        public void stopDownload() {
+            if (!isRunning) return;
+            
+            if (downloadTask != null && !downloadTask.isDone()) {
+                downloadTask.cancel(true);
+            }
+            
+            isRunning = false;
+            actionBtn.setText("Resume");
+            progressBar.setString("Stopped");
+        }
+        
+        public boolean isCompleted() {
+            return isCompleted;
+        }
+        
+        public boolean isFailed() {
+            return isFailed;
+        }
+        
+        // Utility methods
+        private String getExtension(String url) {
+            int lastDot = url.lastIndexOf(".");
+            if (lastDot > 0) {
+                return url.substring(lastDot);
+            }
+            return "";
+        }
+        
+        private String formatFileSize(long size) {
+            if (size <= 0) return "Unknown";
+            
+            final String[] units = new String[] { "B", "KB", "MB", "GB", "TB" };
+            int digitGroups = (int) (Math.log10(size) / Math.log10(1024));
+            
+            DecimalFormat df = new DecimalFormat("#,##0.#");
+            return df.format(size / Math.pow(1024, digitGroups)) + " " + units[digitGroups];
+        }
+        
+        private String calculateETA(long remainingBytes, double speed) {
+            if (speed <= 0 || remainingBytes <= 0) return "Unknown";
+            
+            long seconds = (long) (remainingBytes / speed);
+            
+            if (seconds < 60) {
+                return seconds + "s";
+            } else if (seconds < 3600) {
+                return (seconds / 60) + "m " + (seconds % 60) + "s";
+            } else {9
+                long hours = seconds / 3600;
+                long minutes = (seconds % 3600) / 60;
+                return hours + "h " + minutes + "m";
+            }
+        }
+    }
+}
