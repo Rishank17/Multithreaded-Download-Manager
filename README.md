@@ -1,4 +1,4 @@
-# Multithreaded Download Manager
+# Multithreaded Download Manager#
 
 A Java Swing-based desktop application that downloads multiple files simultaneously using multithreading while displaying real-time progress for each download.
 
